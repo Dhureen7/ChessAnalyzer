@@ -1,0 +1,37 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+venv/
+.env
+.venv/
+
+# Stockfish binary or other compiled binaries
+stockfish/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+
+# Docker
+*.pid
+*.tar
+*.img
+*.container
+docker-compose.override.yml
+
+# VSCode or other IDE/editor settings
+.vscode/
+.idea/
+
+# Python egg info
+*.egg-info/
+dist/
+build/
+
+# If you're using Flask or FastAPI, and have an app folder:
+# (optional) Ignore runtime files (only if not meant for versioning)
+app/__pycache__/
