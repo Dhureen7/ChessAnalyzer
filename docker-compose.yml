@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:13
+    container_name: chess_postgres_db
+    restart: always
+    environment:
+      POSTGRES_DB: chess_db
+      POSTGRES_USER: chess_user # Make sure this matches your user
+      POSTGRES_PASSWORD: chess_pass # Make sure this matches your password
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  backend:
+    build: ./backend
+    container_name: chess_backend
+    restart: always
+    # --- ADD THIS LINE ---
+    env_file:
+      - ./.env # Points to the .env file in the same directory as docker-compose.yml
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+
+volumes:
+  db_data:

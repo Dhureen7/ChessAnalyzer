@@ -1,20 +1,20 @@
-# Use official Python base image
 FROM python:3.11-slim
 
-# Set working directory
+# Set environment and working directory
+ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
-# Copy requirements and install
-COPY requirements.txt .
+# Install dependencies first to leverage Docker cache
+COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy your FastAPI app and Stockfish binary
+# Copy all app code and Stockfish
 COPY ./app ./app
 COPY ./stockfish/stockfish ./stockfish/stockfish
 
-# Give execute permissions to Stockfish binary
+# Make Stockfish binary executable
 RUN chmod +x ./stockfish/stockfish
 
-# Set environment and expose port
+# Expose port and start app
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

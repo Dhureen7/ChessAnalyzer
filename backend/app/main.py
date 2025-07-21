@@ -1,15 +1,123 @@
-from fastapi import FastAPI, Query, HTTPException
+import os
+from fastapi import FastAPI, Query, HTTPException, Depends, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
+from typing import Dict, Any
 from stockfish import Stockfish
+from sqlalchemy.orm import Session
+from sqlalchemy import exc # For handling database exceptions
+from dotenv import load_dotenv
+from pathlib import Path
+from datetime import datetime, timedelta
+
+# Import database and models
+from .database import SessionLocal, engine, get_db, Base
+from . import models
+
+# For password hashing
+from passlib.context import CryptContext
+
+# For JWT (JSON Web Tokens)
+from jose import JWTError, jwt
+
+# Load .env from /backend/
+env_path = Path(__file__).resolve().parent.parent / '.env'
+load_dotenv(dotenv_path=env_path)
+
+# --- Security Constants ---
+SECRET_KEY = os.getenv("SECRET_KEY")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 # can change later
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 app = FastAPI()
+
+# Create database tables on startup (for development purposes)
+# In production, you'd typically use Alembic for migrations
+@app.on_event("startup")
+def on_startup():
+    Base.metadata.create_all(bind=engine)
+    print("Database tables created/checked.")
 
 stockfish = Stockfish(path="./stockfish/stockfish")
 
 class PlayRequest(BaseModel):
     fen: str
     user_move: str
+
+class UserIn(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+
+class UserOut(BaseModel):
+    email: EmailStr
+    name: str
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+# --- Helper Functions for Security ---
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password):
+    return pwd_context.hash(password)
+
+def create_access_token(data: Dict[str, Any], expires_delta: int = ACCESS_TOKEN_EXPIRE_MINUTES):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=expires_delta)
+    to_encode.update({"exp": expire})  # Add expiration to token
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+# --- Authentication Endpoints ---
+
+@app.post("/signup", response_model=UserOut)
+async def signup(user: UserIn, db: Session = Depends(get_db)):
+    # Check if user already exists
+    db_user = db.query(models.User).filter(models.User.email == user.email).first()
+    if db_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    hashed_password = get_password_hash(user.password)
+    
+    # Create a new user object
+    new_user = models.User(
+        email=user.email,
+        hashed_password=hashed_password,
+        name=user.name
+    )
+    
+    try:
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user) # Refresh to get the generated ID
+        return UserOut(email=new_user.email, name=new_user.name)
+    except exc.SQLAlchemyError as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error during signup: {e}")
+
+
+@app.post("/login", response_model=Token)
+async def login(form_data: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.email == form_data.email).first()
+
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token = create_access_token(data={"sub": user.email})
+    return {"access_token": access_token, "token_type": "bearer"}
 
 @app.get("/move")
 def get_best_move(fen: str = Query(..., description="FEN position before the user move")):
